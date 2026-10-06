@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Exploradores — Terreno Anômalo</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#101a18;color:#eff4e9;font-family:Arial,sans-serif;overflow:hidden}#top{height:76px;background:#14221f;border-bottom:3px solid #d9fa58;display:flex;align-items:center;justify-content:space-between;padding:0 24px}h1{margin:0;font-size:26px;letter-spacing:-1px}#hud{display:flex;gap:22px;font-family:monospace;font-weight:bold}.stat span{color:#d9fa58}#game{display:block;background:#9a9d83;image-rendering:pixelated}#help{position:fixed;left:20px;bottom:18px;background:#14221fe8;border:1px solid #53635b;padding:12px 15px;border-radius:8px;font:14px monospace}.key{border:1px solid #839087;background:#25332f;padding:2px 6px;border-radius:4px}#msg{position:fixed;top:92px;left:50%;transform:translateX(-50%);background:#d9fa58;color:#10201d;padding:10px 18px;border-radius:20px;font-weight:bold;opacity:0;transition:.2s;pointer-events:none}.bar{position:fixed;right:20px;bottom:18px;width:180px;height:12px;background:#26332e;border:1px solid #738078;border-radius:10px;overflow:hidden}.fill{height:100%;width:0;background:#d9fa58;transition:.2s}
+
+.hidden{display:none!important}
+#detailPanel,#guessPanel{position:fixed;inset:0;background:rgba(5,12,10,.68);z-index:20;display:flex;align-items:center;justify-content:center;padding:20px}
+.detailBox,.guessBox{width:min(700px,94vw);background:#14221f;border:2px solid #d9fa58;box-shadow:0 0 0 6px rgba(217,250,88,.08),0 18px 60px #0008;padding:28px;color:#eff4e9}
+.guessTop{display:flex;justify-content:space-between;align-items:center;color:#d9fa58;font:700 12px monospace;letter-spacing:1px}
+.guessTop button{border:0;background:none;color:#d9fa58;font-size:28px;cursor:pointer}
+.detailBox h2,.guessBox h2{font-size:30px;margin:16px 0 12px;letter-spacing:-1px}
+.detailBox p,.guessBox p{color:#c4ccc3;line-height:1.6}
+.detailStats{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}.detailStats span{background:#25332f;border:1px solid #53635b;padding:9px 11px;font:12px monospace}.detailStats b{color:#d9fa58}
+.fieldNote{margin:18px 0;padding:15px;background:#202f2b;border-left:4px solid #d9fa58;color:#d8ded7;line-height:1.5}
+.bigAction{width:100%;text-align:center;background:#d9fa58;border:0;padding:15px;font-weight:900;color:#10201d;cursor:pointer;margin-top:4px}.bigAction:hover{background:#efff9c}
+.guessGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:20px}.guessGrid button{padding:16px;border:1px solid #53635b;background:#202f2b;color:#eff4e9;text-align:left;cursor:pointer;font-weight:700}.guessGrid button:hover{background:#d9fa58;color:#10201d}
+#guessResult{margin-top:18px;padding:15px;line-height:1.55;min-height:20px}.correct{background:#d9fa58;color:#10201d}.wrong{background:#352522;color:#ffd7cf;border-left:4px solid #ff7867}
+@media(max-width:650px){.guessGrid{grid-template-columns:1fr}.detailBox h2,.guessBox h2{font-size:23px}.detailStats{display:grid;grid-template-columns:1fr}}
+</style></head>
+<body>
+<header id="top"><h1>O QUE ENCONTRAMOS?</h1><div id="hud"><div class="stat">PONTOS <span id="score">0000</span></div><div class="stat">PISTAS <span id="clues">0/5</span></div><div class="stat">TEMPO <span id="time">90</span></div></div></header>
+<canvas id="game"></canvas><div id="msg"></div>
+<div id="guessPanel" class="hidden">
+  <div class="guessBox">
+    <div class="guessTop"><span>◆ HIPÓTESE DO EXPLORADOR</span><button onclick="closeGuess()">×</button></div>
+    <h2>O que você acha que existe aqui?</h2>
+    <p id="guessIntro">Use as pistas encontradas para montar sua teoria.</p>
+    <div class="guessGrid">
+      <button onclick="guess('parede')">🧱 Parede / fundação subterrânea</button>
+      <button onclick="guess('tunel')">🚇 Túnel ou galeria antiga</button>
+      <button onclick="guess('canal')">💧 Canalização / drenagem</button>
+      <button onclick="guess('abrigo')">🏚️ Abrigo ou estrutura subterrânea</button>
+      <button onclick="guess('natural')">🪨 Formação natural</button>
+    </div>
+    <div id="guessResult"></div>
+  </div>
+</div>
+<div id="detailPanel" class="hidden">
+  <div class="detailBox">
+    <div class="guessTop"><span id="detailTag">ANOMALIA</span><button onclick="closeDetail()">×</button></div>
+    <h2 id="detailTitle"></h2>
+    <div class="detailStats" id="detailStats"></div>
+    <p id="detailText"></p>
+    <div class="fieldNote" id="fieldNote"></div>
+    <button class="bigAction" onclick="openGuess()">◆ TENTAR ADIVINHAR O QUE É</button>
+  </div>
+</div>
+<div class="bar"><div class="fill" id="fill"></div></div>
+<div id="help"><span class="key">WASD</span> / <span class="key">↑↓←→</span> mover &nbsp; • &nbsp; <span class="key">E</span> investigar &nbsp; • &nbsp; <span class="key">G</span> tentar adivinhar</div>
+<script>
+const c=document.getElementById('game'),x=c.getContext('2d');let W,H;
+function resize(){W=innerWidth;H=innerHeight-76;c.width=W;c.height=H}addEventListener('resize',resize);resize();
+const world={w:1800,h:1200};let cam={x:0,y:0};
+const keys={};addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true;if(['arrowup','arrowdown','arrowleft','arrowright',' '].includes(e.key.toLowerCase()))e.preventDefault();if(e.key.toLowerCase()==='e')investigate(); if(e.key.toLowerCase()==='g')openGuess()});addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+const explorer={x:500,y:570,r:15,s:3.5,name:'VOCÊ'};const friend={x:560,y:610,r:14,s:2.8,name:'AMIGO'};
+const rocks=[...Array(45)].map((_,i)=>({x:80+((i*317)%1650),y:90+((i*211)%1010),r:10+(i%4)*6}));
+const trees=[...Array(32)].map((_,i)=>({x:60+((i*431)%1700),y:80+((i*293)%1040)}));
+const clues=[
+{x:310,y:360,title:'CONTORNO RETILÍNEO',depth:'2,8 m',signal:'████░',shape:'linha quase reta',text:'O radar mostra uma faixa contínua com borda bem definida. Em vez de um sinal espalhado, a anomalia mantém largura parecida por vários metros. Isso pode indicar uma superfície construída, como uma parede ou fundação enterrada.',note:'Observação de campo: não há vegetação crescendo exatamente sobre a linha. A leitura segue em direção ao ponto 04.',done:false},
+{x:810,y:290,title:'CAMADA UNIFORME',depth:'3,1 m',signal:'█████',shape:'plano horizontal',text:'Nesta área, a profundidade muda muito pouco entre várias leituras. A superfície parece nivelada e compacta, algo compatível com piso, laje, cobertura ou outra camada artificial. Ainda não sabemos sua espessura.',note:'Observação de campo: três leituras próximas repetiram praticamente a mesma profundidade.',done:false},
+{x:1190,y:520,title:'NÚCLEO DE SINAL FORTE',depth:'3,4 m',signal:'█████',shape:'bloco compacto',text:'O sinal mais intenso do terreno aparece aqui. A anomalia tem limites mais nítidos no lado norte e parece continuar para oeste. Materiais muito compactos podem gerar esse padrão, mas pedras naturais também podem produzir sinais fortes.',note:'Observação de campo: a intensidade cai rapidamente quando o equipamento se afasta alguns metros do centro.',done:false},
+{x:980,y:850,title:'GEOMETRIA DO PERÍMETRO',depth:'2,9 m',signal:'████░',shape:'ângulo / quina',text:'Duas linhas de sinal parecem se encontrar formando um ângulo. Esta é uma das pistas mais interessantes: uma quina bem marcada é mais difícil de explicar por uma formação natural completamente irregular.',note:'Observação de campo: a direção da quina aponta aproximadamente para as anomalias 01 e 05, sugerindo que todas podem pertencer à mesma estrutura.',done:false},
+{x:420,y:910,title:'PISTA FINAL',depth:'3,0 m',signal:'████░',shape:'continuação',text:'A leitura fecha parte do contorno observado no lado sul. Combinada com as outras anomalias, ela sugere uma estrutura com limites definidos e profundidade semelhante em diferentes pontos.',note:'Conclusão provisória: há indícios de um perímetro subterrâneo. Ainda é necessário determinar se ele é uma parede, galeria, canalização, abrigo ou formação natural.',done:false}
+];
+let score=0,found=0,time=90,last=performance.now(),msgTimer=0,currentClue=null,gameWon=false;
+function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+function say(t){const m=document.getElementById('msg');m.textContent=t;m.style.opacity=1;msgTimer=2}
+function investigate(){
+ let best=null,bd=85;
+ for(const q of clues){let d=dist(explorer,q);if(!q.done&&d<bd){best=q;bd=d}}
+ if(!best){say('Chegue mais perto de uma anomalia!');return}
+ best.done=true; currentClue=best; found++; score+=100+found*50;
+ document.getElementById('score').textContent=String(score).padStart(4,'0');
+ document.getElementById('clues').textContent=found+'/5';
+ showDetail(best);
+ if(found===5) say('🏆 TODAS AS PISTAS FORAM MAPEADAS!');
+}
+function showDetail(q){
+ document.getElementById('detailTag').textContent='ANOMALIA '+String(found).padStart(2,'0');
+ document.getElementById('detailTitle').textContent=q.title;
+ document.getElementById('detailStats').innerHTML='<span>PROFUNDIDADE: <b>'+q.depth+'</b></span><span>SINAL: <b>'+q.signal+'</b></span><span>FORMA: <b>'+q.shape+'</b></span>';
+ document.getElementById('detailText').textContent=q.text;
+ document.getElementById('fieldNote').textContent='📋 '+q.note;
+ document.getElementById('detailPanel').classList.remove('hidden');
+}
+function closeDetail(){document.getElementById('detailPanel').classList.add('hidden')}
+function openGuess(){closeDetail();document.getElementById('guessIntro').textContent=found<2?'Você ainda tem poucas evidências. Pode arriscar, mas a leitura ainda é incerta.':found<4?'Já existem boas pistas. Compare forma, profundidade e continuidade antes de escolher.':'Você já reuniu evidências suficientes para uma hipótese forte. Qual é sua conclusão?';document.getElementById('guessResult').innerHTML='';document.getElementById('guessPanel').classList.remove('hidden')}
+function closeGuess(){document.getElementById('guessPanel').classList.add('hidden')}
+function guess(type){
+ const result=document.getElementById('guessResult');
+ if(gameWon){result.innerHTML='<strong>INVESTIGAÇÃO CONCLUÍDA.</strong>';return}
+ let correct=type==='parede';
+ if(correct){
+   let bonus=found>=4?1000:found>=2?500:150; score+=bonus; gameWon=true;
+   document.getElementById('score').textContent=String(score).padStart(4,'0');
+   result.className='correct';result.innerHTML='🎯 <strong>HIPÓTESE CONFIRMADA!</strong><br>As pistas apontam principalmente para uma <b>parede/fundação subterrânea</b>, possivelmente parte de uma construção maior. Você acertou a interpretação principal.';
+   say('🏆 VOCÊ DESVENDOU A ANOMALIA!');
+ } else {
+   let hints={tunel:'O contorno encontrado não mostra um corredor contínuo e estreito o bastante para confirmar um túnel.',canal:'Não encontramos sinais claros de um leito ou caminho de escoamento.',abrigo:'Um abrigo continua possível, mas faltam entradas, câmaras ou indícios de acesso.',natural:'A hipótese natural é possível, porém a geometria regular e a profundidade uniforme pesam contra ela.'};
+   result.className='wrong';result.innerHTML='❌ <strong>HIPÓTESE NÃO CONFIRMADA.</strong><br>'+hints[type]+'<br><small>Explore mais anomalias e tente novamente.</small>';
+   score=Math.max(0,score-50);document.getElementById('score').textContent=String(score).padStart(4,'0');
+ }
+}
+
+function move(p,dx,dy){let nx=p.x+dx,ny=p.y+dy;nx=Math.max(30,Math.min(world.w-30,nx));ny=Math.max(30,Math.min(world.h-30,ny));p.x=nx;p.y=ny}
+function update(dt){let dx=0,dy=0;if(keys.w||keys.arrowup)dy--;if(keys.s||keys.arrowdown)dy++;if(keys.a||keys.arrowleft)dx--;if(keys.d||keys.arrowright)dx++;if(dx||dy){let l=Math.hypot(dx,dy);move(explorer,dx/l*explorer.s,dy/l*explorer.s)}
+// companion follows
+let d=dist(friend,explorer);if(d>55){move(friend,(explorer.x-friend.x)/d*friend.s,(explorer.y-friend.y)/d*friend.s)}
+cam.x=Math.max(0,Math.min(world.w-W,explorer.x-W/2));cam.y=Math.max(0,Math.min(world.h-H,explorer.y-H/2));time-=dt;if(time<0)time=0;document.getElementById('time').textContent=Math.ceil(time);document.getElementById('fill').style.width=(time/90*100)+'%';if(msgTimer>0){msgTimer-=dt;if(msgTimer<=0)document.getElementById('msg').style.opacity=0}}
+function circle(px,py,r,fill,stroke){x.beginPath();x.arc(px-cam.x,py-cam.y,r,0,Math.PI*2);x.fillStyle=fill;x.fill();if(stroke){x.strokeStyle=stroke;x.lineWidth=2;x.stroke()}}
+function draw(){x.clearRect(0,0,W,H);x.fillStyle='#9b9e83';x.fillRect(0,0,W,H);
+// grid / terrain
+x.strokeStyle='#858a73';x.lineWidth=1;for(let gx=(-cam.x%60);gx<W;gx+=60){x.beginPath();x.moveTo(gx,0);x.lineTo(gx,H);x.stroke()}for(let gy=(-cam.y%60);gy<H;gy+=60){x.beginPath();x.moveTo(0,gy);x.lineTo(W,gy);x.stroke()}
+// patches
+for(let i=0;i<35;i++){let px=((i*377)%world.w)-cam.x,py=((i*191)%world.h)-cam.y;x.fillStyle=i%2?'#92977b':'#a2a589';x.beginPath();x.ellipse(px,py,70+(i%3)*20,28,0,0,7);x.fill()}
+rocks.forEach(r=>{circle(r.x,r.y,r.r,'#59645b');circle(r.x-4,r.y-5,r.r*.5,'#737d6e')});
+trees.forEach(t=>{let px=t.x-cam.x,py=t.y-cam.y;x.fillStyle='#4d5d4b';x.fillRect(px-3,py,6,18);x.fillStyle='#263e35';x.beginPath();x.arc(px,py,17,0,7);x.fill();x.fillStyle='#354c3c';x.beginPath();x.arc(px-8,py+5,11,0,7);x.fill()});
+// clue zones
+clues.forEach(q=>{let px=q.x-cam.x,py=q.y-cam.y;if(px>-60&&px<W+60&&py>-60&&py<H+60&&!q.done){x.strokeStyle='#d9fa58';x.lineWidth=3;x.beginPath();x.arc(px,py,25+Math.sin(performance.now()/250)*5,0,7);x.stroke();x.fillStyle='#d9fa58';x.font='bold 12px monospace';x.textAlign='center';x.fillText('ANOMALIA '+String(clues.indexOf(q)+1).padStart(2,'0'),px,py-34); x.fillStyle='#b9d84a'; x.fillRect(px-2,py-2,4,4)}if(q.done){circle(q.x,q.y,9,'#d9fa58')}});
+// trail / players
+function person(p,body,accent){let px=p.x-cam.x,py=p.y-cam.y;circle(p.x,p.y+15,17,'rgba(30,35,30,.22)');circle(p.x,p.y,12,body,'#10201d');circle(p.x,p.y-17,9,'#e9c4a0','#10201d');x.fillStyle=accent;x.fillRect(px-11,py-6,22,17);x.fillStyle='#10201d';x.fillRect(px-10,py+11,7,12);x.fillRect(px+3,py+11,7,12);x.fillStyle='#fff';x.font='bold 10px Arial';x.textAlign='center';x.fillText(p.name,px,py-30)}
+person(friend,'#d7dfd3','#546b61');person(explorer,'#d9fa58','#10201d');
+// compass
+x.fillStyle='#14221fdd';x.fillRect(W-90,20,65,65);x.fillStyle='#d9fa58';x.font='bold 16px monospace';x.textAlign='center';x.fillText('N',W-57,43);x.fillStyle='#fff';x.fillText('↑',W-57,69);
+}
+function loop(now){let dt=Math.min(.05,(now-last)/1000);last=now;update(dt);draw();requestAnimationFrame(loop)}requestAnimationFrame(loop);
+</script></body></html>
